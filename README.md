@@ -15,7 +15,9 @@ validates, and repairs malformed tool calls before they reach your application.
 
 ## Why llm-port?
 
-- Use the same API with Anthropic, Gemini, Sarvam, OpenAI, Ollama, and LM Studio.
+- Use the same API with Anthropic, Gemini, Sarvam, OpenAI, Azure, Bedrock, Vertex AI,
+  Groq, OpenRouter, DeepSeek, Together, Fireworks, xAI, Mistral, and local servers
+  (Ollama, LM Studio, vLLM, llama.cpp, TGI).
 - Receive typed `Message`, `ToolCall`, `Usage`, and `StreamEvent` values.
 - Declare a tool once and reuse its schema for provider calls and validation.
 - Recover tool calls emitted as text by weak or local models.
@@ -25,10 +27,15 @@ validates, and repairs malformed tool calls before they reach your application.
 ## Install
 
 ```bash
-pip install llm-port
+pip install llm-port[openai]      # OpenAI, Azure, Groq, OpenRouter, DeepSeek, and every local server
+pip install llm-port[anthropic]   # Anthropic
+pip install llm-port[bedrock]     # AWS Bedrock
+pip install llm-port[all]         # every provider
 ```
 
-Python 3.12 or later is required. The only runtime dependency is `httpx`.
+Python 3.12 or later is required. The core install depends only on `httpx`; each provider extra
+adds that provider's SDK. One extra often covers several providers — `openai` serves every
+service that speaks the OpenAI wire format, including Ollama, LM Studio, vLLM, llama.cpp, and TGI.
 
 ## Quick start
 
@@ -65,14 +72,32 @@ client = LLMClient(
 
 ## Providers
 
-| Provider           | `Provider` member    | Default base URL                                       | Credential          |
-| ------------------ | -------------------- | ------------------------------------------------------ | ------------------- |
-| Anthropic          | `Provider.ANTHROPIC` | `https://api.anthropic.com/v1`                          | `ANTHROPIC_API_KEY` |
-| Google Gemini      | `Provider.GEMINI`    | `https://generativelanguage.googleapis.com/v1beta`      | `GEMINI_API_KEY`    |
-| Sarvam             | `Provider.SARVAM`    | `https://api.sarvam.ai/v1`                              | `SARVAM_API_KEY`    |
-| OpenAI             | `Provider.OPENAI`    | `https://api.openai.com/v1`                             | `OPENAI_API_KEY`    |
-| Ollama             | `Provider.OLLAMA`    | `http://localhost:11434/v1`                             | not required        |
-| LM Studio          | `Provider.LMSTUDIO`  | `http://localhost:1234/v1`                              | not required        |
+| Provider      | `Provider` member       | Default base URL                                   | Credential            |
+| ------------- | ----------------------- | -------------------------------------------------- | --------------------- |
+| Anthropic     | `Provider.ANTHROPIC`    | `https://api.anthropic.com/v1`                       | `ANTHROPIC_API_KEY`   |
+| Google Gemini | `Provider.GEMINI`       | `https://generativelanguage.googleapis.com/v1beta`   | `GEMINI_API_KEY`      |
+| Sarvam        | `Provider.SARVAM`       | `https://api.sarvam.ai/v1`                           | `SARVAM_API_KEY`      |
+| OpenAI        | `Provider.OPENAI`       | `https://api.openai.com/v1`                          | `OPENAI_API_KEY`      |
+| Azure OpenAI  | `Provider.AZURE_OPENAI` | none — `base_url` required                           | `AZURE_OPENAI_API_KEY`|
+| Groq          | `Provider.GROQ`         | `https://api.groq.com/openai/v1`                     | `GROQ_API_KEY`        |
+| OpenRouter    | `Provider.OPENROUTER`   | `https://openrouter.ai/api/v1`                       | `OPENROUTER_API_KEY`  |
+| DeepSeek      | `Provider.DEEPSEEK`     | `https://api.deepseek.com/v1`                        | `DEEPSEEK_API_KEY`    |
+| Together      | `Provider.TOGETHER`     | `https://api.together.xyz/v1`                        | `TOGETHER_API_KEY`    |
+| Fireworks     | `Provider.FIREWORKS`    | `https://api.fireworks.ai/inference/v1`              | `FIREWORKS_API_KEY`   |
+| xAI           | `Provider.XAI`          | `https://api.x.ai/v1`                                | `XAI_API_KEY`         |
+| Mistral       | `Provider.MISTRAL`      | `https://api.mistral.ai/v1`                          | `MISTRAL_API_KEY`     |
+| AWS Bedrock   | `Provider.BEDROCK`      | none — `base_url` required                           | AWS credential chain  |
+| Vertex AI     | `Provider.VERTEX`       | none — `base_url` required                           | Google ADC            |
+| Ollama        | `Provider.OLLAMA`       | `http://localhost:11434/v1`                          | not required          |
+| LM Studio     | `Provider.LMSTUDIO`     | `http://localhost:1234/v1`                           | not required          |
+| vLLM          | `Provider.VLLM`         | `http://localhost:8000/v1`                           | not required          |
+| llama.cpp     | `Provider.LLAMACPP`     | `http://localhost:8080/v1`                           | not required          |
+| TGI           | `Provider.TGI`          | `http://localhost:8080/v1`                           | not required          |
+
+Azure OpenAI, Bedrock, and Vertex AI have account- or region-specific endpoints, so `base_url`
+is mandatory for them; `resolved_base_url` raises `ConfigurationError` with the expected shape
+when it is missing. Bedrock and Vertex AI take no API key — their adapters resolve credentials
+through the AWS credential chain and Google Application Default Credentials respectively.
 
 Every default is overridable through `base_url` and `api_key`.
 
