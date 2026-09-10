@@ -1,7 +1,12 @@
+"""Tool and argument specifications for LLM port.
+
+Defines ArgSpec and ToolSpec dataclasses for representing tool arguments and tools,
+including type checks, enum validation, and JSON-Schema integration.
+"""
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+
 # JSON-Schema primitive type -> (isinstance check, human label for errors).
-from dataclasses import dataclass
-
-
 _TYPE_CHECKS: dict[str, tuple[type | tuple[type, ...], str]] = {
     "string": (str, "a string"),
     "integer": (int, "an integer"),
@@ -67,3 +72,90 @@ class ToolSpec:
     parameters: dict = field(default_factory=lambda: {"type": "object", "properties": {}})
     args: tuple[ArgSpec, ...] = ()
     guidance: str = ""
+
+    @classmethod
+    def from_function_dict(cls, definition: dict) -> "ToolSpec":
+        """Parse an OpenAI-style ``{"type": "function", "function": {...}}`` dict.
+
+        Accepts either the full envelope or a bare ``function`` body. The
+        non-standard ``guidance`` field is captured here and deliberately *not*
+        re-emitted by :meth:`to_wire`.
+        """
+        fn = definition.get("function", definition)
+        params = fn.get("parameters") or {"type": "object", "properties": {}}
+        required = set(params.get("required", ()) or ())
+        props = params.get("properties", {}) or {}
+        args = tuple(
+            ArgSpec(
+                name=field_name,
+                type=spec.get("type", "") or "",
+                description=spec.get("description", "") or "",
+                required=field_name in required,
+                enum=tuple(spec.get("enum") or ()),
+                item_type=(spec.get("items") or {}).get("type"),
+            )
+            for field_name, spec in props.items()
+        )
+        return cls(
+            name=fn["name"],
+            description=fn.get("description", "") or "",
+            parameters=params,
+            args=args,
+            guidance=fn.get("guidance", "") or "",
+        )
+
+    def to_wire(self) -> dict:
+        """Render the standard provider function schema (no ``guidance``)."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+
+    def missing_required(self, args: dict) -> frozenset[str]:
+        """Required arg names absent from ``args``."""
+        return frozenset(a.name for a in self.args if a.required and a.name not in args)
+
+    def argument_error(self, args: dict) -> str | None:
+        """First type/enum violation among the declared args, or None."""
+        by_name = {a.name: a for a in self.args}
+        for field_name, value in args.items():
+            spec = by_name.get(field_name)
+            if spec is None:
+                continue  # unknown fields are not type-checked (lenient by design)
+            error = spec.type_error(value)
+            if error:
+                return error
+        return None
+
+    def format_instructions(self) -> str:
+        """One-tool format block for prompt part 3 (weak/no-native-tool models)."""
+        line = f"- {self.name}: {self.description}".rstrip()
+        if not self.args:
+            return line
+        rendered = []
+        for a in self.args:
+            tag = "required" if a.required else "optional"
+            kind = a.type or "any"
+            choices = f", one of {list(a.enum)}" if a.enum else ""
+            rendered.append(f"{a.name} ({kind}, {tag}{choices})")
+        return line + "\n  arguments: " + "; ".join(rendered)
+
+
+def render_tool_instructions(specs: Sequence[ToolSpec]) -> str:
+    """Prompt part 3: how a no-native-tool model must emit a tool call.
+
+    The adapter appends this only when ``Capabilities.native_tools`` is false —
+    a native model gets the declaration (``to_wire``) and an empty part 3.
+    """
+    catalogue = "\n".join(spec.format_instructions() for spec in specs)
+    return (
+        "You do not have a native tool-calling channel. To call a tool, reply with "
+        "ONLY a single JSON object and nothing else, in exactly this shape:\n"
+        '{"tool_call": {"name": "<tool_name>", "arguments": {<args>}}}\n'
+        "Do not wrap it in prose, markdown, or code fences. Use only these tools:\n"
+        f"{catalogue}"
+    )
