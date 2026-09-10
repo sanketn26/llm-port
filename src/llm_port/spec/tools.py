@@ -81,10 +81,31 @@ class ToolSpec:
         non-standard ``guidance`` field is captured here and deliberately *not*
         re-emitted by :meth:`to_wire`.
         """
+
+        if "type" in definition and definition["type"] != "function":
+            raise ValueError("Invalid function definition: 'type' must be 'function'")
+
         fn = definition.get("function", definition)
+
+        name = fn.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"tool definition missing a valid 'name': {fn!r}")
+
         params = fn.get("parameters") or {"type": "object", "properties": {}}
+        if params.get("type", "object") != "object":
+            raise ValueError(
+                f"tool '{name}' parameters must be a JSON-Schema object, got {params.get('type')!r}"
+            )
+
         required = set(params.get("required", ()) or ())
         props = params.get("properties", {}) or {}
+
+        unknown_required = required - props.keys()
+        if unknown_required:
+            raise ValueError(
+                f"tool '{name}' required field(s) not in properties: {sorted(unknown_required)}"
+            )
+
         args = tuple(
             ArgSpec(
                 name=field_name,
@@ -97,7 +118,7 @@ class ToolSpec:
             for field_name, spec in props.items()
         )
         return cls(
-            name=fn["name"],
+            name=name,
             description=fn.get("description", "") or "",
             parameters=params,
             args=args,
@@ -153,8 +174,8 @@ def render_tool_instructions(specs: Sequence[ToolSpec]) -> str:
     """
     catalogue = "\n".join(spec.format_instructions() for spec in specs)
     return (
-        "You do not have a native tool-calling channel. To call a tool, reply with "
-        "ONLY a single JSON object and nothing else, in exactly this shape:\n"
+        "To call a tool, reply with ONLY a single JSON object and nothing else, "
+        "in exactly this shape:\n"
         '{"tool_call": {"name": "<tool_name>", "arguments": {<args>}}}\n'
         "Do not wrap it in prose, markdown, or code fences. Use only these tools:\n"
         f"{catalogue}"
